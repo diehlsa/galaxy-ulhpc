@@ -46,7 +46,8 @@ class Configuration( object ):
         self.__parse_config_file_options( kwargs )
 
         # Collect the umask and primary gid from the environment
-        self.umask = os.umask( 077 )  # get the current umask
+        #self.umask = os.umask( 077 )  # get the current umask
+        self.umask = 0002
         os.umask( self.umask )  # can't get w/o set, so set it back
         self.gid = os.getgid()  # if running under newgrp(1) we'll need to fix the group of data created on the cluster
 

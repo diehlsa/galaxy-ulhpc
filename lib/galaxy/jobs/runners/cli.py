@@ -28,6 +28,7 @@ class ShellJobRunner( AsynchronousJobRunner ):
         self.cli_interface = CliInterface()
         self._init_monitor_thread()
         self._init_worker_threads()
+        self.cluster_exec = True
 
     def get_cli_plugins( self, shell_params, job_params ):
         return self.cli_interface.get_plugins( shell_params, job_params )
@@ -50,7 +51,7 @@ class ShellJobRunner( AsynchronousJobRunner ):
     def queue_job( self, job_wrapper ):
         """Create job script and submit it to the DRM"""
         # prepare the job
-        if not self.prepare_job( job_wrapper, include_metadata=True ):
+        if not self.prepare_job( job_wrapper, include_metadata=False ):
             return
 
         # command line has been added to the wrapper by prepare_job()
@@ -78,6 +79,7 @@ class ShellJobRunner( AsynchronousJobRunner ):
             fh = file(ajs.job_file, "w")
             fh.write(script)
             fh.close()
+            os.chmod(ajs.job_file,0764)
         except:
             log.exception("(%s) failure writing job script" % galaxy_id_tag )
             job_wrapper.fail("failure preparing job script", exception=True)
@@ -100,7 +102,7 @@ class ShellJobRunner( AsynchronousJobRunner ):
             return
         # Some job runners return something like 'Submitted batch job XXXX' 
         # Strip and split to get job ID.
-        external_job_id = cmd_out.stdout.strip().split()[-1]
+        external_job_id = cmd_out.stdout.strip().split('=')[-1]
         if not external_job_id:
             log.error('(%s) submission did not return a job identifier, failing job' % galaxy_id_tag)
             job_wrapper.fail("failure submitting job")

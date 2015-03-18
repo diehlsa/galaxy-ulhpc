@@ -12,6 +12,7 @@
   </outputs>
   <requirements>
     <requirement type="python-module">rpy</requirement>
+      <requirement type="package">rpy</requirement>
   </requirements>
   <tests>
     <test>

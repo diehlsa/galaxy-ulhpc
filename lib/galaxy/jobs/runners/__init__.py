@@ -63,6 +63,7 @@ class BaseJobRunner( object ):
             log.debug( 'Loading %s with params: %s', self.runner_name, kwargs )
         self.runner_params = RunnerParams( specs=runner_param_specs, params=kwargs )
         self.runner_state_handlers = build_state_handlers()
+        self.cluster_exec = False
 
     def _init_worker_threads(self):
         """Start ``nworkers`` worker threads.

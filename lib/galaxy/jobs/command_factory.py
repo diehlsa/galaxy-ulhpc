@@ -122,7 +122,10 @@ def __handle_metadata(commands_builder, job_wrapper, runner, remote_command_para
     # Append metadata setting commands, we don't want to overwrite metadata
     # that was copied over in init_meta(), as per established behavior
     metadata_kwds = remote_command_params.get('metadata_kwds', {})
-    exec_dir = metadata_kwds.get( 'exec_dir', abspath( getcwd() ) )
+    if runner.cluster_exec:
+        exec_dir = "/home/users/project_galaxy/galaxy-dist"
+    else:
+        exec_dir = metadata_kwds.get( 'exec_dir', abspath( getcwd() ) )
     tmp_dir = metadata_kwds.get( 'tmp_dir', job_wrapper.working_directory )
     dataset_files_path = metadata_kwds.get( 'dataset_files_path', runner.app.model.Dataset.file_path )
     output_fnames = metadata_kwds.get( 'output_fnames', job_wrapper.get_output_fnames() )
