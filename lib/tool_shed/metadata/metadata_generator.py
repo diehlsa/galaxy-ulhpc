@@ -7,7 +7,7 @@ from galaxy import util
 from galaxy.datatypes import checkers
 from galaxy.model.orm import and_
 from galaxy.tools.data_manager.manager import DataManager
-from galaxy.tools import TestCollectionDef
+from galaxy.tools.parser.interface import TestCollectionDef
 from galaxy.web import url_for
 
 from tool_shed.repository_types import util as rt_util
@@ -456,8 +456,8 @@ class MetadataGenerator( object ):
                                 try:
                                     exported_workflow_dict = json.loads( workflow_text )
                                 except Exception, e:
-                                    log.exception( "Skipping file %s since it does not seem to be a valid exported Galaxy workflow: %s" \
-                                                   % str( relative_path ), str( e ) )
+                                    log.exception( "Skipping file %s since it does not seem to be a valid exported Galaxy workflow: %s"
+                                                   % ( str( relative_path ), str( e ) ) )
                                     valid_exported_galaxy_workflow = False
                             if valid_exported_galaxy_workflow and \
                                 'a_galaxy_workflow' in exported_workflow_dict and \

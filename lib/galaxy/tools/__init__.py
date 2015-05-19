@@ -40,7 +40,7 @@ from galaxy.tools.parameters.basic import (BaseURLToolParameter,
                                            DataToolParameter, DataCollectionToolParameter, HiddenToolParameter, LibraryDatasetToolParameter,
                                            SelectToolParameter, ToolParameter, UnvalidatedValue,
                                            IntegerToolParameter, FloatToolParameter)
-from galaxy.tools.parameters.grouping import Conditional, ConditionalWhen, Repeat, UploadDataset
+from galaxy.tools.parameters.grouping import Conditional, ConditionalWhen, Repeat, Section, UploadDataset
 from galaxy.tools.parameters.input_translation import ToolInputTranslator
 from galaxy.tools.parameters.output import ToolOutputActionGroup
 from galaxy.tools.parameters.validation import LateValidationError
@@ -417,13 +417,14 @@ class Tool( object, Dictifiable ):
     dict_collection_visible_keys = ( 'id', 'name', 'version', 'description' )
     default_template = 'tool_form.mako'
 
-    def __init__( self, config_file, tool_source, app, guid=None, repository_id=None ):
+    def __init__( self, config_file, tool_source, app, guid=None, repository_id=None, allow_code_files=True ):
         """Load a tool from the config named by `config_file`"""
         # Determine the full path of the directory where the tool config is
         self.config_file = config_file
         self.tool_dir = os.path.dirname( config_file )
         self.app = app
         self.repository_id = repository_id
+        self._allow_code_files = allow_code_files
         #setup initial attribute values
         self.inputs = odict()
         self.stdio_exit_codes = list()
@@ -550,7 +551,7 @@ class Tool( object, Dictifiable ):
     def get_panel_section( self ):
         return self.app.toolbox.get_integrated_section_for_tool( self )
 
-    def allow_user_access( self, user ):
+    def allow_user_access( self, user, attempting_access=True ):
         """
         :returns: bool -- Whether the user is allowed to access the tool.
         """
@@ -704,14 +705,15 @@ class Tool( object, Dictifiable ):
         # Load any tool specific code (optional) Edit: INS 5/29/2007,
         # allow code files to have access to the individual tool's
         # "module" if it has one.  Allows us to reuse code files, etc.
-        for code_elem in root.findall("code"):
-            for hook_elem in code_elem.findall("hook"):
-                for key, value in hook_elem.items():
-                    # map hook to function
-                    self.hook_map[key] = value
-            file_name = code_elem.get("file")
-            code_path = os.path.join( self.tool_dir, file_name )
-            execfile( code_path, self.code_namespace )
+        if self._allow_code_files:
+            for code_elem in root.findall("code"):
+                for hook_elem in code_elem.findall("hook"):
+                    for key, value in hook_elem.items():
+                        # map hook to function
+                        self.hook_map[key] = value
+                file_name = code_elem.get("file")
+                code_path = os.path.join( self.tool_dir, file_name )
+                execfile( code_path, self.code_namespace )
 
         # User interface hints
         uihints_elem = root.find( "uihints" )
@@ -971,6 +973,15 @@ class Tool( object, Dictifiable ):
                         case.value = unspecified_case
                         case.inputs = odict()
                         group.cases.append( case )
+                rval[group.name] = group
+            elif input_type == "section":
+                group = Section()
+                group.name = input_source.get( "name" )
+                group.title = input_source.get( "title" )
+                group.help = input_source.get( "help", None )
+                group.expanded = input_source.get_bool( "expanded", False )
+                page_source = input_source.parse_nested_inputs_source()
+                group.inputs = self.parse_input_elem( page_source, enctypes, context )
                 rval[group.name] = group
             elif input_type == "upload_dataset":
                 elem = input_source.elem()
@@ -1505,6 +1516,20 @@ class Tool( object, Dictifiable ):
                     group_state['__current_case__'] = current_case
                     # Store the value of the test element
                     group_state[ input.test_param.name ] = value
+            elif isinstance( input, Section ):
+                group_state = state[input.name]
+                group_prefix = "%s|" % ( key )
+                self.fill_in_new_state( trans, input.inputs, group_state, context, history=history )
+                group_errors = self.populate_state( trans,
+                                                    input.inputs,
+                                                    group_state,
+                                                    incoming,
+                                                    history,
+                                                    source,
+                                                    prefix=group_prefix,
+                                                    context=context )
+                if group_errors:
+                    errors[ input.name ] = group_errors
             elif isinstance( input, UploadDataset ):
                 group_state = state[input.name]
                 group_errors = []
@@ -1714,6 +1739,22 @@ class Tool( object, Dictifiable ):
                 group_state['__current_case__'] = current_case
                 # Store the value of the test element
                 group_state[ input.test_param.name ] = value
+            elif isinstance( input, Section ):
+                group_state = state[input.name]
+                group_old_errors = old_errors.get( input.name, {} )
+                group_prefix = "%s|" % ( key )
+                group_errors = self.update_state( trans,
+                                                  input.inputs,
+                                                  group_state,
+                                                  incoming,
+                                                  prefix=group_prefix,
+                                                  context=context,
+                                                  source=source,
+                                                  update_only=update_only,
+                                                  old_errors=group_old_errors,
+                                                  item_callback=item_callback )
+                if group_errors:
+                    errors[ input.name ] = group_errors
             elif isinstance( input, UploadDataset ):
                 group_state = state[input.name]
                 group_errors = []
@@ -1849,10 +1890,12 @@ class Tool( object, Dictifiable ):
         """
         args = dict()
         for key, param in self.inputs.iteritems():
-            if isinstance( param, HiddenToolParameter ):
+            # BaseURLToolParameter is now a subclass of HiddenToolParameter, so
+            # we must check if param is a BaseURLToolParameter first
+            if isinstance( param, BaseURLToolParameter ):
+                args[key] = param.get_initial_value( trans, None )
+            elif isinstance( param, HiddenToolParameter ):
                 args[key] = model.User.expand_user_properties( trans.user, param.value )
-            elif isinstance( param, BaseURLToolParameter ):
-                args[key] = param.get_value( trans )
             else:
                 raise Exception( "Unexpected parameter type" )
         return args
@@ -2109,39 +2152,6 @@ class Tool( object, Dictifiable ):
         """
         pass
 
-    def collect_associated_files( self, output, job_working_directory ):
-        """
-        Find extra files in the job working directory and move them into
-        the appropriate dataset's files directory
-        """
-        for name, hda in output.items():
-            temp_file_path = os.path.join( job_working_directory, "dataset_%s_files" % ( hda.dataset.id ) )
-            extra_dir = None
-            try:
-                # This skips creation of directories - object store
-                # automatically creates them.  However, empty directories will
-                # not be created in the object store at all, which might be a
-                # problem.
-                for root, dirs, files in os.walk( temp_file_path ):
-                    extra_dir = root.replace(job_working_directory, '', 1).lstrip(os.path.sep)
-                    for f in files:
-                        self.app.object_store.update_from_file(hda.dataset,
-                            extra_dir=extra_dir,
-                            alt_name=f,
-                            file_name=os.path.join(root, f),
-                            create=True,
-                            preserve_symlinks=True
-                        )
-                # Clean up after being handled by object store.
-                # FIXME: If the object (e.g., S3) becomes async, this will
-                # cause issues so add it to the object store functionality?
-                if extra_dir is not None:
-                    # there was an extra_files_path dir, attempt to remove it
-                    shutil.rmtree(temp_file_path)
-            except Exception, e:
-                log.debug( "Error in collect_associated_files: %s" % ( e ) )
-                continue
-
     def collect_child_datasets( self, output, job_working_directory ):
         """
         Look for child dataset files, create HDA and attach to parent.
@@ -2251,7 +2261,7 @@ class Tool( object, Dictifiable ):
 
         return tool_dict
 
-    def to_json (self, trans, kwd={}, is_dynamic=True):
+    def to_json (self, trans, kwd={}, is_workflow=False):
         """
         Recursively creates a tool dictionary containing repeats, dynamic options and updated states.
         """
@@ -2363,7 +2373,7 @@ class Tool( object, Dictifiable ):
             error = 'State validation failed.'
 
             # skip dynamic fields if deactivated
-            if not is_dynamic and input.is_dynamic:
+            if is_workflow and input.is_dynamic:
                 return [value, None]
 
             # validate value content
@@ -2416,6 +2426,10 @@ class Tool( object, Dictifiable ):
                             errors[test_param_key] = 'The selected case is unavailable/invalid.'
                             pass
                     group_state[input.test_param.name] = value
+                elif input.type == 'section':
+                    group_state = state[input.name]
+                    group_prefix = "%s|" % ( key )
+                    populate_state(trans, input.inputs, group_state, errors, incoming, prefix=group_prefix, context=context)
                 else:
                     default_value = incoming.get(key, state.get(input.name, None))
                     value, error = check_state(trans, input, default_value, context)
@@ -2433,7 +2447,7 @@ class Tool( object, Dictifiable ):
                     continue
 
                 # state for subsection/group
-                group_state = state_inputs[input.name]
+                group_state = state_inputs.get(input.name, {})
 
                 # iterate and update values
                 if input.type == 'repeat':
@@ -2444,34 +2458,41 @@ class Tool( object, Dictifiable ):
                 elif input.type == 'conditional':
                     if 'test_param' in tool_dict:
                         test_param = tool_dict['test_param']
-                        test_param['value'] = jsonify(group_state[test_param['name']])
-                        if '__current_case__' in group_state:
-                            i = group_state['__current_case__']
-                            iterate(tool_dict['cases'][i]['inputs'], input.cases[i].inputs, group_state, other_values)
+                        test_param['default_value'] = jsonify(input.test_param.get_initial_value(trans, other_values))
+                        test_param['value'] = jsonify(group_state.get(test_param['name'], test_param['default_value']))
+                        for i in range (len ( tool_dict['cases'] ) ):
+                            current_state = {}
+                            if i == group_state.get('__current_case__', None):
+                                current_state = group_state
+                            iterate(tool_dict['cases'][i]['inputs'], input.cases[i].inputs, current_state, other_values)
+                elif input.type == 'section':
+                    iterate( tool_dict['inputs'], input.inputs, group_state, other_values )
                 else:
-                    # create input dictionary, try to pass other_values if to_dict function supports it e.g. dynamic options
+                    # identify name
+                    input_name = tool_dict.get('name')
+
+                    # expand input dictionary incl. repeats and dynamic_parameters
                     try:
                         tool_dict = input.to_dict(trans, other_values=other_values)
                     except Exception:
+                        log.exception('tools::to_json() - Skipping parameter expansion for %s.' % input_name)
                         pass
 
-                    # identify name
-                    input_name = tool_dict.get('name')
-                    if input_name:
-                        # backup default value
+                    # backup default value
+                    try:
                         tool_dict['default_value'] = input.get_initial_value(trans, other_values)
+                    except Exception:
+                        log.exception('tools::to_json() - Getting initial value failed %s.' % input_name)
+                        # get initial value failed due to improper late validation
+                        tool_dict['default_value'] = None
+                        pass
 
-                        # update input value from tool state
-                        if input_name in state_inputs:
-                            tool_dict['value'] = state_inputs[input_name]
+                    # update input value from tool state
+                    tool_dict['value'] = state_inputs.get(input_name, tool_dict['default_value'])
 
-                        # sanitize values
-                        sanitize(tool_dict, 'value')
-                        sanitize(tool_dict, 'default_value')
-
-                        # use default value
-                        if tool_dict['value'] is None:
-                            tool_dict['value'] = tool_dict['default_value']
+                    # sanitize values
+                    sanitize(tool_dict, 'value')
+                    sanitize(tool_dict, 'default_value')
 
                 # backup final input dictionary
                 group_inputs[input_index] = tool_dict
@@ -2531,7 +2552,8 @@ class Tool( object, Dictifiable ):
         tool_versions = []
         tools = self.app.toolbox.get_loaded_tools_by_lineage(self.id)
         for t in tools:
-            tool_versions.append(t.version)
+            if not t.version in tool_versions:
+                tool_versions.append(t.version)
 
         # add information with underlying requirements and their versions
         tool_requirements = []
@@ -2584,28 +2606,44 @@ class Tool( object, Dictifiable ):
         # dataset used; parameter should be the analygous dataset in the
         # current history.
         history = trans.get_history()
-        hda_source_dict = {} # Mapping from HDA in history to source HDAs.
+
+        # Create index for hdas.
+        hda_source_dict = {}
         for hda in history.datasets:
-            source_hda = hda.copied_from_history_dataset_association
-            while source_hda:
-                if source_hda.dataset.id not in hda_source_dict or source_hda.hid == hda.hid:
-                    hda_source_dict[ source_hda.dataset.id ] = hda
-                source_hda = source_hda.copied_from_history_dataset_association
+            key = '%s_%s' % (hda.hid, hda.dataset.id)
+            hda_source_dict[ hda.dataset.id ] = hda_source_dict[ key ] = hda
 
         # Ditto for dataset collections.
         hdca_source_dict = {}
         for hdca in history.dataset_collections:
-            source_hdca = hdca.copied_from_history_dataset_collection_association
-            while source_hdca:
-                if source_hdca.collection.id not in hdca_source_dict or source_hdca.hid == hdca.hid:
-                    hdca_source_dict[ source_hdca.collection.id ] = hdca
-                source_hdca = source_hdca.copied_from_history_dataset_collection_association
+            key = '%s_%s' % (hdca.hid, hdca.collection.id)
+            hdca_source_dict[ hdca.collection.id ] = hdca_source_dict[ key ] = hdca
+
+        # Map dataset or collection to current history
+        def map_to_history(value):
+            id = None
+            source = None
+            if isinstance(value, trans.app.model.HistoryDatasetAssociation):
+                id = value.dataset.id
+                source = hda_source_dict
+            elif isinstance(value, trans.app.model.HistoryDatasetCollectionAssociation):
+                id = value.collection.id
+                source = hdca_source_dict
+            else:
+                return None
+            key = '%s_%s' % (value.hid, id)
+            if key in source:
+                return source[ key ]
+            elif id in source:
+                return source[ id ]
+            else:
+                return None
 
         # Unpack unvalidated values to strings, they'll be validated when the
         # form is submitted (this happens when re-running a job that was
         # initially run by a workflow)
         #This needs to be done recursively through grouping parameters
-        def rerun_callback( input, value, prefixed_name, prefixed_label ):
+        def mapping_callback( input, value, prefixed_name, prefixed_label ):
             if isinstance( value, UnvalidatedValue ):
                 try:
                     return input.to_html_value( value.value, trans.app )
@@ -2617,22 +2655,17 @@ class Tool( object, Dictifiable ):
                 if isinstance(value,list):
                     values = []
                     for val in value:
-                        if isinstance(val, trans.app.model.HistoryDatasetAssociation):
-                            if val.dataset.id in hda_source_dict:
-                                values.append( hda_source_dict[ val.dataset.id ] )
-                            else:
-                                values.append( val )
+                        new_val = map_to_history( val )
+                        if new_val:
+                            values.append( new_val )
+                        else:
+                            values.append( val )
                     return values
-                if isinstance(value, trans.app.model.HistoryDatasetAssociation):
-                    if value.dataset.id in hda_source_dict:
-                        return hda_source_dict[ value.dataset.id ]
-                if isinstance(value, trans.app.model.HistoryDatasetCollectionAssociation):
-                    if value.collection.id in hdca_source_dict:
-                        return hdca_source_dict[ value.collection.id ]
+                else:
+                    return map_to_history( value )
             elif isinstance( input, DataCollectionToolParameter ):
-                if value.collection.id in hdca_source_dict:
-                    return hdca_source_dict[ value.collection.id ]
-        visit_input_values( tool_inputs, params, rerun_callback )
+                return map_to_history( value )
+        visit_input_values( tool_inputs, params, mapping_callback )
 
     def _compare_tool_version( self, trans, job ):
         """
@@ -2765,6 +2798,8 @@ class DataSourceTool( OutputParameterJSONTool ):
 
     def parse_inputs( self, tool_source ):
         super( DataSourceTool, self ).parse_inputs( tool_source )
+        # Open all data_source tools in _top.
+        self.target = '_top'
         if 'GALAXY_URL' not in self.inputs:
             self.inputs[ 'GALAXY_URL' ] = self._build_GALAXY_URL_parameter()
             self.inputs_by_page[0][ 'GALAXY_URL' ] = self.inputs[ 'GALAXY_URL' ]
@@ -2934,16 +2969,26 @@ class DataManagerTool( OutputParameterJSONTool ):
                     history = None
         return history
 
-    def allow_user_access( self, user ):
+    def allow_user_access( self, user, attempting_access=True ):
         """
+        :param user: model object representing user.
+        :type user: galaxy.model.User
+        :param attempting_access: is the user attempting to do something with the
+                               the tool (set false for incidental checks like toolbox
+                               listing)
+        :type attempting_access:  bool
+
         :returns: bool -- Whether the user is allowed to access the tool.
         Data Manager tools are only accessible to admins.
         """
         if super( DataManagerTool, self ).allow_user_access( user ) and self.app.config.is_admin_user( user ):
             return True
-        if user:
-            user = user.id
-        log.debug( "User (%s) attempted to access a data manager tool (%s), but is not an admin.", user, self.id ) 
+        # If this is just an incidental check - do not log the scary message
+        # about users attempting to do something problematic.
+        if attempting_access:
+            if user:
+                user = user.id
+            log.debug( "User (%s) attempted to access a data manager tool (%s), but is not an admin.", user, self.id )
         return False
 
 # Populate tool_type to ToolClass mappings
@@ -2985,71 +3030,6 @@ class SetParamAction:
 class BadValue( object ):
     def __init__( self, value ):
         self.value = value
-
-
-class ToolStdioRegex( object ):
-    """
-    This is a container for the <stdio> element's regex subelement.
-    The regex subelement has a "match" attribute, a "sources"
-    attribute that contains "output" and/or "error", and a "level"
-    attribute that contains "warning" or "fatal".
-    """
-    def __init__( self ):
-        self.match = ""
-        self.stdout_match = False
-        self.stderr_match = False
-        # TODO: Define a common class or constant for error level:
-        self.error_level = "fatal"
-        self.desc = ""
-
-
-class ToolStdioExitCode( object ):
-    """
-    This is a container for the <stdio> element's <exit_code> subelement.
-    The exit_code element has a range of exit codes and the error level.
-    """
-    def __init__( self ):
-        self.range_start = float( "-inf" )
-        self.range_end = float( "inf" )
-        # TODO: Define a common class or constant for error level:
-        self.error_level = "fatal"
-        self.desc = ""
-
-
-class TestCollectionDef( object ):
-
-    def __init__( self, elem, parse_param_elem ):
-        self.elements = []
-        attrib = dict( elem.attrib )
-        self.collection_type = attrib[ "type" ]
-        self.name = attrib.get( "name", "Unnamed Collection" )
-        for element in elem.findall( "element" ):
-            element_attrib = dict( element.attrib )
-            element_identifier = element_attrib[ "name" ]
-            nested_collection_elem = element.find( "collection" )
-            if nested_collection_elem is not None:
-                self.elements.append( ( element_identifier, TestCollectionDef( nested_collection_elem, parse_param_elem ) ) )
-            else:
-                self.elements.append( ( element_identifier, parse_param_elem( element ) ) )
-
-    def collect_inputs( self ):
-        inputs = []
-        for element in self.elements:
-            value = element[ 1 ]
-            if isinstance( value, TestCollectionDef ):
-                inputs.extend( value.collect_inputs() )
-            else:
-                inputs.append( value )
-        return inputs
-
-
-class TestCollectionOutputDef( object ):
-
-    def __init__( self, name, attrib, element_tests ):
-        self.name = name
-        self.collection_type = attrib.get( "type", None )
-        self.attrib = attrib
-        self.element_tests = element_tests
 
 
 def json_fix( val ):

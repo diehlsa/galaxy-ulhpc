@@ -124,23 +124,48 @@ def app_factory( global_conf, **kwargs ):
                             name_prefix='user_',
                             path_prefix='/api',
                             parent_resources=dict( member_name='user', collection_name='users' ) )
+    webapp.mapper.connect( 'update_repository',
+                          '/api/repositories/:id',
+                           controller='repositories',
+                           action='update',
+                           conditions=dict( method=[ "PATCH", "PUT" ] ) )
     webapp.mapper.connect( 'repository_create_changeset_revision',
                            '/api/repositories/:id/changeset_revision',
                            controller='repositories',
                            action='create_changeset_revision',
+                           conditions=dict( method=[ "POST" ] ) )
+    webapp.mapper.connect( 'create_repository',
+                           '/api/repositories',
+                           controller='repositories',
+                           action='create',
                            conditions=dict( method=[ "POST" ] ) )
 
     webapp.finalize_config()
     # Wrap the webapp in some useful middleware
     if kwargs.get( 'middleware', True ):
         webapp = wrap_in_middleware( webapp, global_conf, **kwargs )
-    if asbool( kwargs.get( 'static_enabled', True ) ):
-        webapp = wrap_in_static( webapp, global_conf, **kwargs )
+    # TEST FOR UWSGI -- TODO save this somewhere so we only have to do it once.
+    is_uwsgi = False
+    try:
+        # The uwsgi module is automatically injected by the parent uwsgi
+        # process and only exists that way.  If anything works, this is a
+        # uwsgi-managed process.
+        import uwsgi
+        is_uwsgi = uwsgi.numproc
+        is_uwsgi = True
+    except ImportError:
+        # This is not a uwsgi process, or something went horribly wrong.
+        pass
+    if asbool( kwargs.get( 'static_enabled', True) ):
+        if is_uwsgi:
+            log.error("Static middleware is enabled in your configuration but this is a uwsgi process.  Refusing to wrap in static middleware.")
+        else:
+            webapp = wrap_in_static( webapp, global_conf, **kwargs )
     # Close any pooled database connections before forking
     try:
-        galaxy.webapps.tool_shed.model.mapping.metadata.engine.connection_provider._pool.dispose()
+        galaxy.webapps.tool_shed.model.mapping.metadata.bind.dispose()
     except:
-        pass
+        log.exception("Unable to dispose of pooled tool_shed model database connections.")
     # Return
     return webapp
 

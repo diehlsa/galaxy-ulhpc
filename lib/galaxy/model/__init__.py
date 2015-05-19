@@ -1335,9 +1335,8 @@ class Dataset( object ):
                     DISCARDED = 'discarded',
                     PAUSED = 'paused',
                     SETTING_METADATA = 'setting_metadata',
-                    FAILED_METADATA = 'failed_metadata',
-                    RESUBMITTED = 'resubmitted' )
-    # failed_metadata and resubmitted are only valid as DatasetInstance states currently
+                    FAILED_METADATA = 'failed_metadata')
+    # failed_metadata is only valid as DatasetInstance state currently
 
     non_ready_states = (
         states.UPLOAD,
@@ -3647,9 +3646,6 @@ class Request( object, Dictifiable ):
         comments = ''
         # Send email
         if trans.app.config.smtp_server is not None and self.notification and self.notification[ 'email' ]:
-            host = trans.request.host.split( ':' )[0]
-            if host in [ 'localhost', '127.0.0.1', '0.0.0.0' ]:
-                host = socket.getfqdn()
             body = """
 Galaxy Sample Tracking Notification
 ===================================
@@ -3686,7 +3682,12 @@ All samples in state:     %(sample_state)s
                     txt = txt + "%s -> %s/%s\r\n" % ( s.name, library_name, folder_name )
                 body = body + txt
             to = self.notification['email']
-            frm = 'galaxy-no-reply@' + host
+            frm = trans.app.config.email_from
+            if frm is None:
+                host = trans.request.host.split( ':' )[0]
+                if host in [ 'localhost', '127.0.0.1', '0.0.0.0' ]:
+                    host = socket.getfqdn()
+                frm = 'galaxy-no-reply@' + host
             subject = "Galaxy Sample Tracking notification: '%s' sequencing request" % self.name
             try:
                 send_mail( frm, to, subject, body, trans.app.config )
