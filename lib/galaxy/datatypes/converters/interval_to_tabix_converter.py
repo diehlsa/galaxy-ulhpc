@@ -6,10 +6,14 @@ Supported presets: bed, gff, vcf
 
 usage: %prog in_file out_file
 """
+import optparse
+import os
+import sys
 
 from galaxy import eggs
-import pkg_resources; pkg_resources.require( "pysam" )
-import ctabix, subprocess, tempfile, sys, os, optparse
+eggs.require( "pysam" )
+import ctabix
+
 
 def main():
     # Read options, args.

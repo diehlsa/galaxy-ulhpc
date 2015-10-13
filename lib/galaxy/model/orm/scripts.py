@@ -33,7 +33,7 @@ DATABASE = {
         },
     "tool_shed":
         {
-            'repo':  'lib/galaxy/webapps/tool_shed/model/migrate',
+            'repo': 'lib/galaxy/webapps/tool_shed/model/migrate',
             'config_file': 'config/tool_shed.ini',
             'old_config_file': 'tool_shed_wsgi.ini',
             'default_sqlite_file': './database/community.sqlite',
@@ -71,8 +71,10 @@ def read_config_file_arg( argv, default, old_default ):
     else:
         if not os.path.exists( default ) and os.path.exists( old_default ):
             config_file = old_default
-        else:
+        elif os.path.exists( default ):
             config_file = default
+        else:
+            config_file = default + ".sample"
     return config_file
 
 
