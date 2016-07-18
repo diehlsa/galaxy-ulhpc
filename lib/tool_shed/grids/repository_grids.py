@@ -1,15 +1,13 @@
+import json
 import logging
 
-from galaxy import eggs
-eggs.require('markupsafe')
 from markupsafe import escape as escape_html
-eggs.require('SQLAlchemy')
 from sqlalchemy import and_, false, or_, true
 
 import tool_shed.grids.util as grids_util
 import tool_shed.repository_types.util as rt_util
 import tool_shed.util.shed_util_common as suc
-from galaxy.util import json, listify
+from galaxy.util import listify
 from galaxy.web.framework.helpers import grids
 from galaxy.webapps.tool_shed import model
 from tool_shed.util import hg_util, metadata_util
@@ -363,12 +361,12 @@ class MatchedRepositoryGrid( grids.Grid ):
     class NameColumn( grids.TextColumn ):
 
         def get_value( self, trans, grid, repository_metadata ):
-            return repository_metadata.repository.name
+            return escape_html( repository_metadata.repository.name )
 
     class DescriptionColumn( grids.TextColumn ):
 
         def get_value( self, trans, grid, repository_metadata ):
-            return repository_metadata.repository.description
+            return escape_html( repository_metadata.repository.description )
 
     class RevisionColumn( grids.TextColumn ):
 
@@ -379,7 +377,7 @@ class MatchedRepositoryGrid( grids.Grid ):
 
         def get_value( self, trans, grid, repository_metadata ):
             if repository_metadata.repository.user:
-                return repository_metadata.repository.user.username
+                return escape_html( repository_metadata.repository.user.username )
             return 'no user'
 
     # Grid definition

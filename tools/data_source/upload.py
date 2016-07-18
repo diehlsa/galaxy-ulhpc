@@ -12,16 +12,15 @@ import sys
 import tempfile
 import urllib
 import zipfile
+from json import dumps, loads
 
 from galaxy import util
-# need to import model before sniff to resolve a circular import dependency
-import galaxy.model  # noqa
 from galaxy.datatypes import sniff
 from galaxy.datatypes.binary import Binary
-from galaxy.datatypes.checkers import check_binary, check_bz2, check_gzip, check_html, check_image, check_zip
 from galaxy.datatypes.registry import Registry
 from galaxy.datatypes.util.image_util import get_image_ext
-from galaxy.util.json import dumps, loads
+from galaxy.util import multi_byte
+from galaxy.util.checkers import check_binary, check_bz2, check_gzip, check_html, check_image, check_zip
 
 try:
     import Image as PIL
@@ -111,7 +110,7 @@ def add_file( dataset, registry, json_file, output_path ):
     if not dataset.type == 'url':
         # Already set is_multi_byte above if type == 'url'
         try:
-            dataset.is_multi_byte = util.is_multi_byte( codecs.open( dataset.path, 'r', 'utf-8' ).read( 100 ) )
+            dataset.is_multi_byte = multi_byte.is_multi_byte( codecs.open( dataset.path, 'r', 'utf-8' ).read( 100 ) )
         except UnicodeDecodeError, e:
             dataset.is_multi_byte = False
     # Is dataset an image?
@@ -125,7 +124,7 @@ def add_file( dataset, registry, json_file, output_path ):
     # Is dataset content multi-byte?
     elif dataset.is_multi_byte:
         data_type = 'multi-byte char'
-        ext = sniff.guess_ext( dataset.path, is_multi_byte=True )
+        ext = sniff.guess_ext( dataset.path, registry.sniff_order, is_multi_byte=True )
     # Is dataset content supported sniffable binary?
     else:
         # FIXME: This ignores the declared sniff order in datatype_conf.xml
@@ -348,7 +347,7 @@ def add_file( dataset, registry, json_file, output_path ):
         datatype.groom_dataset_content( output_path )
 
 
-def add_composite_file( dataset, registry, json_file, output_path, files_path ):
+def add_composite_file( dataset, json_file, output_path, files_path ):
         if dataset.composite_files:
             os.mkdir( files_path )
             for name, value in dataset.composite_files.iteritems():
@@ -414,7 +413,7 @@ def __main__():
             sys.exit( 1 )
         if dataset.type == 'composite':
             files_path = output_paths[int( dataset.dataset_id )][1]
-            add_composite_file( dataset, registry, json_file, output_path, files_path )
+            add_composite_file( dataset, json_file, output_path, files_path )
         else:
             add_file( dataset, registry, json_file, output_path )
 

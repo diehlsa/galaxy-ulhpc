@@ -2,11 +2,11 @@ import csv
 import logging
 import re
 
-from galaxy import eggs
-eggs.require('SQLAlchemy')
 from sqlalchemy import and_, false, func, select
+from markupsafe import escape
 
 from galaxy import model, util, web
+from galaxy.util import unicodify
 from galaxy.security.validate_user_input import validate_email
 from galaxy.web.base.controller import BaseUIController, UsesFormDefinitionsMixin
 from galaxy.web.form_builder import build_select_field, CheckboxField, SelectField, TextField
@@ -19,11 +19,11 @@ class RequestsGrid( grids.Grid ):
     # Custom column types
     class NameColumn( grids.TextColumn ):
         def get_value( self, trans, grid, request ):
-            return request.name
+            return escape(request.name)
 
     class DescriptionColumn( grids.TextColumn ):
         def get_value(self, trans, grid, request):
-            return request.desc
+            return escape(request.desc)
 
     class SamplesColumn( grids.GridColumn ):
         def get_value(self, trans, grid, request):
@@ -122,9 +122,9 @@ class RequestsCommon( BaseUIController, UsesFormDefinitionsMixin ):
                     sample = trans.sa_session.query( self.app.model.Sample ).get( id )
                     if sample.state.name != state:
                         rval[ id ] = { "state": sample.state.name,
-                                       "html_state": unicode( trans.fill_template( "requests/common/sample_state.mako",
-                                                                                   sample=sample),
-                                                              'utf-8' ) }
+                                       "html_state": unicodify( trans.fill_template( "requests/common/sample_state.mako",
+                                                                                     sample=sample),
+                                                                'utf-8' ) }
         return rval
 
     @web.json
@@ -143,9 +143,9 @@ class RequestsCommon( BaseUIController, UsesFormDefinitionsMixin ):
                     sample = trans.sa_session.query( self.app.model.Sample ).get( id )
                     if len( sample.datasets ) != number_of_datasets:
                         rval[ id ] = { "datasets": len( sample.datasets ),
-                                       "html_datasets": unicode( trans.fill_template( "requests/common/sample_datasets.mako",
-                                                                                      sample=sample),
-                                                                 'utf-8' ) }
+                                       "html_datasets": unicodify( trans.fill_template( "requests/common/sample_datasets.mako",
+                                                                                        sample=sample),
+                                                                   'utf-8' ) }
         return rval
 
     @web.json
@@ -164,9 +164,9 @@ class RequestsCommon( BaseUIController, UsesFormDefinitionsMixin ):
                     sample_dataset = trans.sa_session.query( self.app.model.SampleDataset ).get( trans.security.decode_id( id ) )
                     if sample_dataset.status != transfer_status:
                         rval[ id ] = { "status": sample_dataset.status,
-                                       "html_status": unicode( trans.fill_template( "requests/common/sample_dataset_transfer_status.mako",
-                                                                                    sample_dataset=sample_dataset),
-                                                               'utf-8' ) }
+                                       "html_status": unicodify( trans.fill_template( "requests/common/sample_dataset_transfer_status.mako",
+                                                                                      sample_dataset=sample_dataset),
+                                                                 'utf-8' ) }
         return rval
 
     @web.expose
@@ -1214,8 +1214,8 @@ class RequestsCommon( BaseUIController, UsesFormDefinitionsMixin ):
             redirect_action = 'edit_samples'
         # Check for duplicate sample names within the request
         self.__validate_sample_names( trans, cntrller, request, sample_widgets, **kwd )
-        print "SAVING SAMPLES!"
-        print "saving_new_samples is %s" % saving_new_samples
+        log.debug( "SAVING SAMPLES!" )
+        log.debug( "saving_new_samples is %s" % saving_new_samples )
         if not saving_new_samples:
             library = None
             folder = None
@@ -1876,8 +1876,8 @@ class RequestsCommon( BaseUIController, UsesFormDefinitionsMixin ):
         empty_sample_fields = []
         for s in request.samples:
             for field in request.type.sample_form.fields:
-                print "field:", field
-                print "svc:", s.values.content
+                log.debug("field: %s", field)
+                log.debug("svc: %s", s.values.content)
                 if field['required'] == 'required' and s.values.content[field['name']] in ['', None]:
                     empty_sample_fields.append((s.name, field['label']))
         if empty_fields or empty_sample_fields:

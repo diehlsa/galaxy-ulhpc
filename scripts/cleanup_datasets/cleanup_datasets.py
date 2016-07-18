@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-
 import ConfigParser
 import logging
 import os
@@ -10,15 +9,11 @@ from datetime import datetime, timedelta
 from optparse import OptionParser
 from time import strftime
 
-new_path = [ os.path.join( os.getcwd(), "lib" ) ]
-new_path.extend( sys.path[1:] )  # remove scripts/ from the path
-sys.path = new_path
-
-from galaxy import eggs
-eggs.require('SQLAlchemy')
 import sqlalchemy as sa
 from sqlalchemy import and_, false, null, true
 from sqlalchemy.orm import eagerload
+
+sys.path.insert(1, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir, 'lib')))
 
 import galaxy.config
 import galaxy.model.mapping
@@ -483,7 +478,7 @@ def _purge_dataset( app, dataset, remove_from_disk, info_only=False ):
                                 if hda.history.user is not None and hda.history.user not in usage_users:
                                     usage_users.append( hda.history.user )
                         for user in usage_users:
-                            user.total_disk_usage -= dataset.get_total_size()
+                            user.adjust_total_disk_usage(-dataset.get_total_size())
                             app.sa_session.add( user )
                     print "Purging dataset id", dataset.id
                     dataset.purged = True

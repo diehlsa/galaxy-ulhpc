@@ -8,19 +8,16 @@ import os
 import random
 import re
 import sys
+from json import loads
 
-from galaxy import eggs
-eggs.require('numpy')  # noqa
-eggs.require('bx-python')  # noqa
+import pysam
 from bx.interval_index_file import Indexes
 from bx.bbi.bigbed_file import BigBedFile
 from bx.bbi.bigwig_file import BigWigFile
-eggs.require('pysam')  # noqa
-from pysam import csamtools, ctabix
+from pysam import ctabix
 
 from galaxy.datatypes.interval import Bed, Gff, Gtf
 from galaxy.datatypes.util.gff_util import convert_gff_coords_to_bed, GFFFeature, GFFInterval, GFFReaderWrapper, parse_gff_attributes
-from galaxy.util.json import loads
 from galaxy.visualization.data_providers.basic import BaseDataProvider
 from galaxy.visualization.data_providers.cigar import get_ref_based_read_seq_and_cigar
 
@@ -198,7 +195,6 @@ class GenomeDataProvider( BaseDataProvider ):
         except AttributeError:
             # FIXME: some data providers do not have a close function implemented.
             # Providers without a close function include:
-            #  pysam Tabixfile
             #  bx IntervalIndex
             pass
 
@@ -349,13 +345,16 @@ class TabixDataProvider( FilterableMixin, GenomeDataProvider ):
 
     def open_data_file( self ):
         return ctabix.Tabixfile(self.dependencies['bgzip'].file_name,
-                                index_filename=self.converted_dataset.file_name)
+                                index=self.converted_dataset.file_name)
 
     def get_iterator( self, data_file, chrom, start, end, **kwargs ):
-        start, end = int(start), int(end)
+        # chrom must be a string, start/end integers.
+        # in previous versions of pysam, unicode was accepted for chrom, but not in 8.4
+        chrom = str(chrom)
+        start = int(start)
+        end = int(end)
         if end >= (2 << 29):
             end = (2 << 29 - 1)  # Tabix-enforced maximum
-
         # Get iterator using either naming scheme.
         iterator = iter( [] )
         if chrom in data_file.contigs:
@@ -849,11 +848,11 @@ class BamDataProvider( GenomeDataProvider, FilterableMixin ):
         """
 
         # Open current BAM file using index.
-        bamfile = csamtools.Samfile( filename=self.original_dataset.file_name, mode='rb',
-                                     index_filename=self.converted_dataset.file_name )
+        bamfile = pysam.AlignmentFile( self.original_dataset.file_name, mode='rb',
+                                       index_filename=self.converted_dataset.file_name )
 
         # TODO: write headers as well?
-        new_bamfile = csamtools.Samfile( template=bamfile, filename=filename, mode='wb' )
+        new_bamfile = pysam.AlignmentFile( filename, template=bamfile, mode='wb' )
 
         for region in regions:
             # Write data from region.
@@ -881,7 +880,7 @@ class BamDataProvider( GenomeDataProvider, FilterableMixin ):
 
     def open_data_file( self ):
         # Attempt to open the BAM file with index
-        return csamtools.Samfile( filename=self.original_dataset.file_name, mode='rb',
+        return pysam.AlignmentFile( self.original_dataset.file_name, mode='rb',
                                   index_filename=self.converted_dataset.file_name )
 
     def get_iterator( self, data_file, chrom, start, end, **kwargs ):
@@ -890,6 +889,9 @@ class BamDataProvider( GenomeDataProvider, FilterableMixin ):
         """
 
         # Fetch and return data.
+        chrom = str(chrom)
+        start = int(start)
+        end = int(end)
         try:
             data = data_file.fetch( start=start, end=end, reference=chrom )
         except ValueError:

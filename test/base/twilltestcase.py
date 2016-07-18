@@ -17,10 +17,7 @@ from json import loads
 from urlparse import urlparse
 from xml.etree import ElementTree
 
-from galaxy import eggs
-eggs.require( "MarkupSafe" )
 from markupsafe import escape
-eggs.require( 'twill' )
 import twill
 import twill.commands as tc
 from twill.other_packages._mechanize_dist import ClientForm
@@ -40,6 +37,8 @@ tc.config( 'use_tidy', 0 )
 logging.getLogger( "ClientCookie.cookies" ).setLevel( logging.WARNING )
 log = logging.getLogger( __name__ )
 
+DEFAULT_TOOL_TEST_WAIT = os.environ.get("GALAXY_TEST_DEFAULT_WAIT", 86400)
+
 
 class TwillTestCase( unittest.TestCase ):
 
@@ -49,7 +48,8 @@ class TwillTestCase( unittest.TestCase ):
         self.history_id = os.environ.get( 'GALAXY_TEST_HISTORY_ID', None )
         self.host = os.environ.get( 'GALAXY_TEST_HOST' )
         self.port = os.environ.get( 'GALAXY_TEST_PORT' )
-        self.url = "http://%s:%s" % ( self.host, self.port )
+        default_url = "http://%s:%s" % (self.host, self.port)
+        self.url = os.environ.get('GALAXY_TEST_EXTERNAL', default_url)
         self.test_data_resolver = TestDataResolver( )
         self.tool_shed_test_file = os.environ.get( 'GALAXY_TOOL_SHED_TEST_FILE', None )
         if self.tool_shed_test_file:
@@ -454,7 +454,7 @@ class TwillTestCase( unittest.TestCase ):
         page = self.last_page()
         if page.find( patt ) == -1:
             fname = self.write_temp_file( page )
-            errmsg = "no match to '%s'\npage content written to '%s'" % ( patt, fname )
+            errmsg = "no match to '%s'\npage content written to '%s'\npage: [[%s]]" % ( patt, fname, page )
             raise AssertionError( errmsg )
 
     def check_request_grid( self, cntrller, state, deleted=False, strings_displayed=[] ):
@@ -1506,7 +1506,10 @@ class TwillTestCase( unittest.TestCase ):
                 break
         self.assertNotEqual(count, maxiter)
 
-    def login( self, email='test@bx.psu.edu', password='testuser', username='admin-user', redirect='' ):
+    def login( self, email='test@bx.psu.edu', password='testuser', username='admin-user', redirect='', logout_first=True ):
+        # Clear cookies.
+        if logout_first:
+            self.logout()
         # test@bx.psu.edu is configured as an admin user
         previously_created, username_taken, invalid_username = \
             self.create( email=email, password=password, username=username, redirect=redirect )
@@ -1520,6 +1523,7 @@ class TwillTestCase( unittest.TestCase ):
     def logout( self ):
         self.visit_url( "%s/user/logout" % self.url )
         self.check_page_for_string( "You have been logged out" )
+        tc.browser.cj.clear()
 
     def make_accessible_via_link( self, history_id, strings_displayed=[], strings_displayed_after_submit=[] ):
         # twill barfs on this form, possibly because it contains no fields, but not sure.
@@ -2443,18 +2447,25 @@ class TwillTestCase( unittest.TestCase ):
     def wait_for( self, func, **kwd ):
         sleep_amount = 0.2
         slept = 0
-        walltime_exceeded = 86400
+        walltime_exceeded = kwd.get("maxseconds", None)
+        if walltime_exceeded is None:
+            walltime_exceeded = DEFAULT_TOOL_TEST_WAIT
+
+        exceeded = True
         while slept <= walltime_exceeded:
             result = func()
             if result:
                 time.sleep( sleep_amount )
                 slept += sleep_amount
                 sleep_amount *= 2
-                if slept + sleep_amount > walltime_exceeded:
-                    sleep_amount = walltime_exceeded - slept  # don't overshoot maxseconds
             else:
+                exceeded = False
                 break
-        assert slept < walltime_exceeded, 'Tool run exceeded reasonable walltime of 24 hours, terminating.'
+
+        if exceeded:
+            message = 'Tool test run exceeded walltime [total %s, max %s], terminating.' % (slept, walltime_exceeded)
+            log.info(message)
+            raise AssertionError(message)
 
     def write_temp_file( self, content, suffix='.html' ):
         fd, fname = tempfile.mkstemp( suffix=suffix, prefix='twilltestcase-' )

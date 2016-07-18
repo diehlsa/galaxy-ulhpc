@@ -4,8 +4,6 @@ API operations on Quota objects.
 import logging
 
 from paste.httpexceptions import HTTPBadRequest
-from galaxy import eggs
-eggs.require('SQLAlchemy')
 from sqlalchemy import false, true
 
 from galaxy import web, util
@@ -52,7 +50,7 @@ class QuotaAPIController( BaseAPIController, Admin, AdminActions, UsesQuotaMixin
         Displays information about a quota.
         """
         quota = self.get_quota( trans, id, deleted=util.string_as_bool( deleted ) )
-        return quota.to_dict( view='element', value_mapper={ 'id': trans.security.encode_id } )
+        return quota.to_dict( view='element', value_mapper={ 'id': trans.security.encode_id, 'total_disk_usage': float } )
 
     @web.expose_api
     @web.require_admin

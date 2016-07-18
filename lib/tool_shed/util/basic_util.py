@@ -4,9 +4,8 @@ import shutil
 import sys
 from string import Template
 
-from galaxy import eggs
-eggs.require( 'MarkupSafe' )
 import markupsafe
+from six import text_type
 
 from galaxy.util import nice_size, unicodify
 
@@ -146,7 +145,7 @@ def to_html_string( text ):
             text = unicodify( text )
         except UnicodeDecodeError, e:
             return "Error decoding string: %s" % str( e )
-        text = unicode( markupsafe.escape( text ) )
+        text = text_type( markupsafe.escape( text ) )
         text = text.replace( '\n', '<br/>' )
         text = text.replace( '    ', '&nbsp;&nbsp;&nbsp;&nbsp;' )
         text = text.replace( ' ', '&nbsp;' )

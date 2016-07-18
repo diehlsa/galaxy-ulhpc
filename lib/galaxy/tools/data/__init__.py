@@ -20,7 +20,7 @@ from urllib2 import urlopen
 from galaxy import util
 from galaxy.util.odict import odict
 
-from galaxy.model.item_attrs import Dictifiable
+from galaxy.util.dictifiable import Dictifiable
 
 log = logging.getLogger( __name__ )
 
@@ -317,6 +317,10 @@ class TabularToolDataTable( ToolDataTable, Dictifiable ):
                 filename = os.path.split( file_path )[ 1 ]
                 filename = os.path.join( tool_data_path, filename )
             if os.path.exists( filename ):
+                found = True
+            elif os.path.exists( "%s.sample" % filename ) and not from_shed_config:
+                log.info("Could not find tool data %s, reading sample" % filename)
+                filename = "%s.sample" % filename
                 found = True
             else:
                 # Since the path attribute can include a hard-coded path to a specific directory

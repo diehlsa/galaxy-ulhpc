@@ -6,14 +6,21 @@
 // dependencies
 define([], function() {
 
+/** Builds a basic iframe
+*/
+function iframe( src ) {
+    return '<iframe src="' + src + '" frameborder="0" style="width: 100%; height: 100%;"/>';
+}
+
 /** Traverse through json
 */
-function deepeach(dict, callback) {
-    for (var i in dict) {
-        var d = dict[i];
-        if (d && typeof(d) == "object") {
-            callback(d);
-            deepeach(d, callback);
+function deepeach( dict, callback ) {
+    for( var i in dict ) {
+        var d = dict[ i ];
+        if( _.isObject( d ) ) {
+            var new_dict = callback( d );
+            new_dict && ( dict[ i ] = new_dict );
+            deepeach( d, callback );
         }
     }
 }
@@ -41,15 +48,15 @@ function sanitize(content) {
  * usually used for selectable options
  * @param{String}   value - Value or list to be validated
  */
-function validate (value) {
-    if (!(value instanceof Array)) {
-        value = [value];
+function validate ( value ) {
+    if ( !( value instanceof Array ) ) {
+        value = [ value ];
     }
-    if (value.length === 0) {
+    if ( value.length === 0 ) {
         return false;
     }
-    for (var i in value) {
-        if (['__null__', '__undefined__', null, undefined].indexOf(value[i]) > -1) {
+    for( var i in value ) {
+        if ( [ '__null__', '__undefined__', null, undefined ].indexOf( value[ i ] ) > -1 ) {
             return false;
         }
     }
@@ -60,13 +67,12 @@ function validate (value) {
  * Convert list to pretty string
  * @param{String}   lst - List of strings to be converted in human readable list sentence
  */
-function textify(lst) {
-    var lst = lst.toString();
-    if (lst) {
-        lst = lst.replace(/,/g, ', ');
-        var pos = lst.lastIndexOf(', ');
-        if (pos != -1) {
-            lst = lst.substr(0, pos) + ' or ' + lst.substr(pos+1);
+function textify( lst ) {
+    if ( $.isArray( lst ) ) {
+        var lst = lst.toString().replace( /,/g, ', ' );
+        var pos = lst.lastIndexOf( ', ' );
+        if ( pos != -1 ) {
+            lst = lst.substr( 0, pos ) + ' or ' + lst.substr( pos + 2 );
         }
         return lst;
     }
@@ -116,16 +122,13 @@ function request (options) {
         data        : options.data || {},
         url         : options.url
     }
-
     // encode data into url
-    if (ajaxConfig.type == 'GET' || ajaxConfig.type == 'DELETE') {
-        if (ajaxConfig.url.indexOf('?') == -1) {
-            ajaxConfig.url += '?';
-        } else {
-            ajaxConfig.url += '&';
+    if ( ajaxConfig.type == 'GET' || ajaxConfig.type == 'DELETE' ) {
+        if ( !$.isEmptyObject(ajaxConfig.data) ) {
+            ajaxConfig.url += ajaxConfig.url.indexOf('?') == -1 ? '?' : '&';
+            ajaxConfig.url += $.param(ajaxConfig.data, true);
         }
-        ajaxConfig.url      = ajaxConfig.url + $.param(ajaxConfig.data, true);
-        ajaxConfig.data     = null;
+        ajaxConfig.data = null;
     } else {
         ajaxConfig.dataType = 'json';
         ajaxConfig.url      = ajaxConfig.url;
@@ -133,8 +136,7 @@ function request (options) {
     }
 
     // make request
-    $.ajax(ajaxConfig)
-    .done(function(response) {
+    $.ajax(ajaxConfig).done(function(response) {
         if (typeof response === 'string') {
             try {
                 response = response.replace('Infinity,', '"Infinity",');
@@ -144,8 +146,7 @@ function request (options) {
             }
         }
         options.success && options.success(response);
-    })
-    .fail(function(response) {
+    }).fail(function(response) {
         var response_text = null;
         try {
             response_text = jQuery.parseJSON(response.responseText);
@@ -153,6 +154,8 @@ function request (options) {
             response_text = response.responseText;
         }
         options.error && options.error(response_text, response);
+    }).always(function() {
+        options.complete && options.complete();
     });
 };
 
@@ -175,7 +178,7 @@ function cssGetAttribute (classname, name) {
  */
 function cssLoadFile (url) {
     if (!$('link[href^="' + url + '"]').length) {
-        $('<link href="' + galaxy_config.root + url + '" rel="stylesheet">').appendTo('head');
+        $('<link href="' + Galaxy.root + url + '" rel="stylesheet">').appendTo('head');
     }
 };
 
@@ -262,6 +265,7 @@ return {
     cssGetAttribute: cssGetAttribute,
     get: get,
     merge: merge,
+    iframe: iframe,
     bytesToString: bytesToString,
     uid: uid,
     time: time,

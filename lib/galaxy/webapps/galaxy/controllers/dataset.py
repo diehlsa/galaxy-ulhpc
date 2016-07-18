@@ -2,12 +2,9 @@ import logging
 import os
 import urllib
 
-from galaxy import eggs
-eggs.require( "MarkupSafe" )
 from markupsafe import escape
-eggs.require( "Paste" )
 import paste.httpexceptions
-eggs.require('SQLAlchemy')
+from six import string_types, text_type
 from sqlalchemy import false, true
 
 from galaxy import datatypes, model, util, web
@@ -24,8 +21,6 @@ log = logging.getLogger( __name__ )
 
 comptypes = []
 
-# TODO: not used in this file
-from galaxy.util.json import loads  # noqa
 try:
     import zlib  # noqa
     comptypes.append( 'zip' )
@@ -37,7 +32,7 @@ class HistoryDatasetAssociationListGrid( grids.Grid ):
     # Custom columns for grid.
     class HistoryColumn( grids.GridColumn ):
         def get_value( self, trans, grid, hda):
-            return hda.history.name
+            return escape(hda.history.name)
 
     class StatusColumn( grids.GridColumn ):
         def get_value( self, trans, grid, hda ):
@@ -62,7 +57,7 @@ class HistoryDatasetAssociationListGrid( grids.Grid ):
     columns = [
         grids.TextColumn( "Name", key="name",
                           # Link name to dataset's history.
-                          link=( lambda item: iff( item.history.deleted, None, dict( operation="switch", id=item.id ) ) ), filterable="advanced", attach_popup=True, inbound=True ),
+                          link=( lambda item: iff( item.history.deleted, None, dict( operation="switch", id=item.id ) ) ), filterable="advanced", attach_popup=True ),
         HistoryColumn( "History", key="history", sortable=False, inbound=True,
                        link=( lambda item: iff( item.history.deleted, None, dict( operation="switch_history", id=item.id ) ) ) ),
         grids.IndividualTagsColumn( "Tags", key="tags", model_tag_association_class=model.HistoryDatasetAssociationTagAssociation, filterable="advanced", grid_name="HistoryDatasetAssocationListGrid" ),
@@ -123,12 +118,8 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
 
     @web.expose
     def errors( self, trans, id ):
-        try:
-            hda = trans.sa_session.query( model.HistoryDatasetAssociation ).get( id )
-        except:
-            hda = None
-        if not hda:
-            hda = trans.sa_session.query( model.HistoryDatasetAssociation ).get( self.decode_id( id ) )
+        hda = trans.sa_session.query( model.HistoryDatasetAssociation ).get( self.decode_id( id ) )
+
         if not hda or not self._can_access_dataset( trans, hda ):
             return trans.show_error_message( "Either this dataset does not exist or you do not have permission to access it." )
         return trans.fill_template( "dataset/errors.mako", hda=hda )
@@ -227,7 +218,7 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
         """ Primarily used for the S3ObjectStore - get the status of data transfer
         if the file is not in cache """
         data = self._check_dataset(trans, dataset_id)
-        if isinstance( data, basestring ):
+        if isinstance( data, string_types ):
             return data
         log.debug( "Checking transfer status for dataset %s..." % data.dataset.id )
 
@@ -523,7 +514,7 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
         """ Import another user's dataset via a shared URL; dataset is added to user's current history. """
         # Set referer message.
         referer = trans.request.referer
-        if referer is not "":
+        if referer:
             referer_message = "<a href='%s'>return to the previous page</a>" % escape(referer)
         else:
             referer_message = "<a href='%s'>go to Galaxy's start page</a>" % url_for( '/' )
@@ -601,7 +592,7 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
 
             # If data is binary or an image, stream without template; otherwise, use display template.
             # TODO: figure out a way to display images in display template.
-            if isinstance(dataset.datatype, datatypes.binary.Binary) or isinstance(dataset.datatype, datatypes.images.Image) or isinstance(dataset.datatype, datatypes.images.Html):
+            if isinstance(dataset.datatype, datatypes.binary.Binary) or isinstance(dataset.datatype, datatypes.images.Image) or isinstance(dataset.datatype, datatypes.text.Html):
                 trans.response.set_content_type( dataset.get_mime() )
                 return open( dataset.file_name )
             else:
@@ -659,7 +650,7 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
         if not dataset:
             web.httpexceptions.HTTPNotFound()
         annotation = self.get_item_annotation_str( trans.sa_session, trans.user, dataset )
-        if annotation and isinstance( annotation, unicode ):
+        if annotation and isinstance( annotation, text_type ):
             annotation = annotation.encode( 'ascii', 'replace' )  # paste needs ascii here
         return annotation
 
@@ -899,7 +890,7 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
             # HDA is purgeable
             # Decrease disk usage first
             if user:
-                user.total_disk_usage -= hda.quota_amount( user )
+                user.adjust_total_disk_usage(-hda.quota_amount(user))
             # Mark purged
             hda.purged = True
             trans.sa_session.add( hda )
@@ -1110,7 +1101,7 @@ class DatasetInterface( BaseUIController, UsesAnnotations, UsesItemRatings, Uses
                 trans.sa_session.flush()
                 hist_names_str = ", ".join( ['<a href="%s" target="_top">%s</a>' %
                                             ( url_for( controller="history", action="switch_to_history",
-                                                       hist_id=trans.security.encode_id( hist.id ) ), hist.name )
+                                                       hist_id=trans.security.encode_id( hist.id ) ), escape(hist.name) )
                                             for hist in target_histories ] )
                 num_source = len( source_content_ids ) - invalid_contents
                 num_target = len(target_histories)
