@@ -3,6 +3,7 @@ Job control via a command line interface (e.g. qsub/qstat), possibly over a remo
 """
 
 import logging
+import os
 
 from galaxy import model
 from galaxy.jobs import JobDestination
